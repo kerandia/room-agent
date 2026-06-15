@@ -565,57 +565,6 @@ class ContextCompiler:
         else:
             return "late night"
 
-    def _get_hardware_specs(self):
-        """Detect actual hardware specs"""
-        # CPU name
-        cpu_name = platform.processor()
-        if not cpu_name or cpu_name == "":
-            try:
-                if IS_WINDOWS:
-                    result = subprocess.run(["wmic", "cpu", "get", "name"], capture_output=True, text=True, timeout=5)
-                    cpu_name = result.stdout.strip().split("\n")[-1].strip()
-                elif IS_LINUX:
-                    with open("/proc/cpuinfo") as f:
-                        for line in f:
-                            if "model name" in line:
-                                cpu_name = line.split(":")[1].strip()
-                                break
-                elif IS_MAC:
-                    result = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True, timeout=5)
-                    cpu_name = result.stdout.strip()
-            except:
-                cpu_name = "unknown CPU"
-        # Shorten common prefixes
-        cpu_name = cpu_name.replace("Intel(R) Core(TM) ", "i").replace("Intel(R) ", "").replace("(R) ", "")
-        cpu_name = cpu_name.replace("AMD ", "").replace("Apple ", "")
-        if not cpu_name:
-            cpu_name = "unknown CPU"
-
-        # RAM
-        ram_gb = round(psutil.virtual_memory().total / (1024**3), 0)
-
-        # GPU
-        gpu_name = "integrated"
-        try:
-            if IS_WINDOWS:
-                result = subprocess.run(["wmic", "path", "win32_videocontroller", "get", "name"], capture_output=True, text=True, timeout=5)
-                lines = [l.strip() for l in result.stdout.strip().split("\n") if l.strip() and l.strip() != "Name"]
-                if lines:
-                    gpu_name = lines[0]
-            elif IS_LINUX:
-                result = subprocess.run(["lspci"], capture_output=True, text=True, timeout=5)
-                for line in result.stdout.split("\n"):
-                    if "VGA" in line or "3D" in line:
-                        gpu_name = line.split(":")[-1].strip()
-                        break
-            elif IS_MAC:
-                gpu_name = "Apple GPU"
-        except:
-            pass
-        gpu_name = gpu_name.replace("NVIDIA ", "").replace("GeForce ", "").replace("Advanced Micro Devices, ", "")
-
-        return cpu_name, int(ram_gb), gpu_name
-
     def _build_system_context(self, data):
         """Interpret system state"""
         cpu = data.get("cpu_percent", 0)
@@ -1031,6 +980,53 @@ Be alive."""
         content = response.choices[0].message.content.strip()
         self.last_api_call = {"time": datetime.now().strftime("%H:%M:%S"), "response_time": f"{elapsed:.2f}s", "model": "zephyr-7b", "response": content, "status": 200, "mode": "HF API"}
         return content
+
+    def _get_hardware_specs(self):
+        """Detect actual hardware specs"""
+        cpu_name = platform.processor()
+        if not cpu_name or cpu_name == "":
+            try:
+                if IS_WINDOWS:
+                    result = subprocess.run(["wmic", "cpu", "get", "name"], capture_output=True, text=True, timeout=5)
+                    cpu_name = result.stdout.strip().split("\n")[-1].strip()
+                elif IS_LINUX:
+                    with open("/proc/cpuinfo") as f:
+                        for line in f:
+                            if "model name" in line:
+                                cpu_name = line.split(":")[1].strip()
+                                break
+                elif IS_MAC:
+                    result = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True, timeout=5)
+                    cpu_name = result.stdout.strip()
+            except:
+                cpu_name = "unknown CPU"
+        cpu_name = cpu_name.replace("Intel(R) Core(TM) ", "i").replace("Intel(R) ", "").replace("(R) ", "")
+        cpu_name = cpu_name.replace("AMD ", "").replace("Apple ", "")
+        if not cpu_name:
+            cpu_name = "unknown CPU"
+
+        ram_gb = round(psutil.virtual_memory().total / (1024**3), 0)
+
+        gpu_name = "integrated"
+        try:
+            if IS_WINDOWS:
+                result = subprocess.run(["wmic", "path", "win32_videocontroller", "get", "name"], capture_output=True, text=True, timeout=5)
+                lines = [l.strip() for l in result.stdout.strip().split("\n") if l.strip() and l.strip() != "Name"]
+                if lines:
+                    gpu_name = lines[0]
+            elif IS_LINUX:
+                result = subprocess.run(["lspci"], capture_output=True, text=True, timeout=5)
+                for line in result.stdout.split("\n"):
+                    if "VGA" in line or "3D" in line:
+                        gpu_name = line.split(":")[-1].strip()
+                        break
+            elif IS_MAC:
+                gpu_name = "Apple GPU"
+        except:
+            pass
+        gpu_name = gpu_name.replace("NVIDIA ", "").replace("GeForce ", "").replace("Advanced Micro Devices, ", "")
+
+        return cpu_name, int(ram_gb), gpu_name
 
     def agent_decide(self, data):
         self.agent_thinking = True
