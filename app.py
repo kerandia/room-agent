@@ -28,7 +28,7 @@ LLM_BACKEND = os.environ.get("LLM_BACKEND", "local")
 ASR_BACKEND = os.environ.get("ASR_BACKEND", "auto")  # auto, whisper, cohere, nemotron, none
 LCD_COLS = 20  # 2004A LCD = 20 columns
 LCD_ROWS = 4   # 2004A LCD = 4 rows
-LOOP_INTERVAL = 15  # seconds between LLM calls
+LOOP_INTERVAL = 8  # seconds between LLM calls
 
 # Platform detection
 PLATFORM = platform.system()  # Windows, Darwin, Linux
@@ -1227,8 +1227,8 @@ How do I feel right now?"""
                 page = self._scroll_pages[self._scroll_page_idx % len(self._scroll_pages)]
                 self.send_lcd(*page)
                 self._scroll_tick += 1
-                # Advance page every 2 ticks (10 seconds per page)
-                if self._scroll_tick >= 2:
+                # Advance page every tick
+                if self._scroll_tick >= 1:
                     self._scroll_tick = 0
                     self._scroll_page_idx += 1
             else:
