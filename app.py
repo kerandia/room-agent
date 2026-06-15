@@ -1183,12 +1183,14 @@ How do I feel right now?"""
                     l3 = str(line2)[:LCD_COLS].ljust(LCD_COLS)
                     l4 = str(line1)[:LCD_COLS].ljust(LCD_COLS)
                     self.ser.write(f"say:{l1}|{l2}|{l3}|{l4}\n".encode())
-                else:
-                    self.ser.write(f"say:{line1}|{line2}\n".encode())
             except:
                 pass
 
     def agent_loop(self):
+        # Auto-connect LCD if not already connected
+        if not self.lcd_connected and not ON_HF:
+            self.connect_lcd()
+
         # Start audio monitoring
         if self.audio.enabled:
             self.audio.start()
