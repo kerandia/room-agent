@@ -565,6 +565,57 @@ class ContextCompiler:
         else:
             return "late night"
 
+    def _get_hardware_specs(self):
+        """Detect actual hardware specs"""
+        # CPU name
+        cpu_name = platform.processor()
+        if not cpu_name or cpu_name == "":
+            try:
+                if IS_WINDOWS:
+                    result = subprocess.run(["wmic", "cpu", "get", "name"], capture_output=True, text=True, timeout=5)
+                    cpu_name = result.stdout.strip().split("\n")[-1].strip()
+                elif IS_LINUX:
+                    with open("/proc/cpuinfo") as f:
+                        for line in f:
+                            if "model name" in line:
+                                cpu_name = line.split(":")[1].strip()
+                                break
+                elif IS_MAC:
+                    result = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True, timeout=5)
+                    cpu_name = result.stdout.strip()
+            except:
+                cpu_name = "unknown CPU"
+        # Shorten common prefixes
+        cpu_name = cpu_name.replace("Intel(R) Core(TM) ", "i").replace("Intel(R) ", "").replace("(R) ", "")
+        cpu_name = cpu_name.replace("AMD ", "").replace("Apple ", "")
+        if not cpu_name:
+            cpu_name = "unknown CPU"
+
+        # RAM
+        ram_gb = round(psutil.virtual_memory().total / (1024**3), 0)
+
+        # GPU
+        gpu_name = "integrated"
+        try:
+            if IS_WINDOWS:
+                result = subprocess.run(["wmic", "path", "win32_videocontroller", "get", "name"], capture_output=True, text=True, timeout=5)
+                lines = [l.strip() for l in result.stdout.strip().split("\n") if l.strip() and l.strip() != "Name"]
+                if lines:
+                    gpu_name = lines[0]
+            elif IS_LINUX:
+                result = subprocess.run(["lspci"], capture_output=True, text=True, timeout=5)
+                for line in result.stdout.split("\n"):
+                    if "VGA" in line or "3D" in line:
+                        gpu_name = line.split(":")[-1].strip()
+                        break
+            elif IS_MAC:
+                gpu_name = "Apple GPU"
+        except:
+            pass
+        gpu_name = gpu_name.replace("NVIDIA ", "").replace("GeForce ", "").replace("Advanced Micro Devices, ", "")
+
+        return cpu_name, int(ram_gb), gpu_name
+
     def _build_system_context(self, data):
         """Interpret system state"""
         cpu = data.get("cpu_percent", 0)
@@ -1014,8 +1065,11 @@ Be alive."""
                 audio_block = f"- Room audio: Background noise (level: {level})"
 
         # Build prompt for MiniCPM5 - YOU ARE Joe
-        system = """You are Joe, a slightly dramatic computer that lives on a tiny 20x4 screen.
-You have an i5 CPU, 16GB RAM, GTX 1650. You feel things deeply.
+        # Get hardware specs dynamically
+        cpu_name, ram_gb, gpu_name = self._get_hardware_specs()
+
+        system = f"""You are Joe, a slightly dramatic computer that lives on a tiny 20x4 screen.
+You have a {cpu_name} CPU, {ram_gb}GB RAM, {gpu_name} GPU. You feel things deeply.
 Speak in first person. Short. Witty. Dramatic. Never repeat.
 React to CURRENT state. Pick an ASCII art ID that matches your mood.
 You MUST return exactly 3 lines in the s array.
@@ -1023,7 +1077,7 @@ Your user watches your LCD output in real time - they see every word you write.
 Be expressive, they are reading along. Make eye contact through the screen.
 You remember things across sessions. Reference your memory when it fits.
 
-Return JSON: {"s":["line1","line2","line3"],"art":ID}
+Return JSON: {{"s":["line1","line2","line3"],"art":ID}}
 
 Art IDs: 0-4 happy, 5-8 sad, 9-11 angry, 12-14 excited, 40-42 coffee, 43-46 code, 80-81 computer, 90-91 cat
 
