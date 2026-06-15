@@ -70,9 +70,10 @@ class AmbientAudio:
             return ASR_BACKEND
 
         # Priority: Cohere local (daemon) > Whisper > none
-        py310 = r"C:\Users\sezer\AppData\Local\Programs\Python\Python310\python.exe"
-        if IS_WINDOWS and os.path.exists(py310):
-            return "cohere_local"
+        if IS_WINDOWS:
+            py310 = self._find_python310()
+            if py310:
+                return "cohere_local"
 
         try:
             import whisper
@@ -82,11 +83,37 @@ class AmbientAudio:
 
         return "none"
 
+    def _find_python310(self):
+        """Find Python 3.10 executable"""
+        # Check common locations
+        candidates = []
+        if IS_WINDOWS:
+            local = os.environ.get("LOCALAPPDATA", "")
+            candidates = [
+                os.path.join(local, "Programs", "Python", "Python310", "python.exe"),
+                os.path.join(local, "Programs", "Python", "Python310", "python3.exe"),
+            ]
+        # Check PATH
+        for name in ["python3.10", "python310", "python3", "python"]:
+            candidates.append(name)
+        
+        for py in candidates:
+            try:
+                result = subprocess.run([py, "--version"], capture_output=True, text=True, timeout=5)
+                if "3.10" in result.stdout:
+                    return py
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+        return None
+
     def _start_cohere_daemon(self):
         """Start the Cohere daemon process (model stays loaded)"""
         if self._cohere_daemon is not None:
             return
-        py310 = r"C:\Users\sezer\AppData\Local\Programs\Python\Python310\python.exe"
+        py310 = self._find_python310()
+        if not py310:
+            print("Python 3.10 not found - Cohere ASR unavailable")
+            return
         daemon_script = os.path.join(os.path.dirname(__file__), "cohere_daemon.py")
         try:
             self._cohere_daemon = subprocess.Popen(
@@ -353,7 +380,7 @@ else:
     LLM_MODEL = "openbmb/minicpm5:latest"
     OLLAMA_API_URL = "http://localhost:11434/api/chat"
 
-SERIAL_PORT = "COM5"
+SERIAL_PORT = os.environ.get("SERIAL_PORT", "auto")  # "auto" detects, or set like "COM5"
 BAUD_RATE = 9600
 
 # ASCII art dreams - 100+ patterns with IDs, selected by LLM
@@ -610,8 +637,20 @@ class RoomAgent:
     def connect_lcd(self):
         if ON_HF:
             return False
+        port = SERIAL_PORT
+        if port == "auto":
+            # Auto-detect Arduino serial port
+            import glob
+            ports = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*") + glob.glob("COM*")
+            if ports:
+                port = ports[0]
+                print(f"Auto-detected serial port: {port}")
+            else:
+                print("No serial port found")
+                self.lcd_connected = False
+                return False
         try:
-            self.ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=2)
+            self.ser = serial.Serial(port, BAUD_RATE, timeout=2)
             time.sleep(2)
             self.lcd_connected = True
             return True
