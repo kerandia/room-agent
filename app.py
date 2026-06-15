@@ -640,8 +640,12 @@ class RoomAgent:
         port = SERIAL_PORT
         if port == "auto":
             # Auto-detect Arduino serial port
-            import glob
-            ports = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*") + glob.glob("COM*")
+            if IS_WINDOWS:
+                import serial.tools.list_ports
+                ports = [p.device for p in serial.tools.list_ports.comports()]
+            else:
+                import glob
+                ports = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")
             if ports:
                 port = ports[0]
                 print(f"Auto-detected serial port: {port}")
