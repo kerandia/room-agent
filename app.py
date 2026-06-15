@@ -28,7 +28,7 @@ LLM_BACKEND = os.environ.get("LLM_BACKEND", "local")
 ASR_BACKEND = os.environ.get("ASR_BACKEND", "auto")  # auto, whisper, cohere, nemotron, none
 LCD_COLS = 20  # 2004A LCD = 20 columns
 LCD_ROWS = 4   # 2004A LCD = 4 rows
-LOOP_INTERVAL = 8  # seconds between LLM calls
+LOOP_INTERVAL = 3  # seconds between LLM calls
 
 # Platform detection
 PLATFORM = platform.system()  # Windows, Darwin, Linux
@@ -1274,7 +1274,7 @@ How do I feel right now?"""
             self._llm_pending = False
 
     def _build_scroll_pages(self, all_lines):
-        """Build scroll pages: art page first, then 3 text lines + grid per page"""
+        """Build scroll pages: text page, then art page, alternating"""
         def safe_line(text):
             """Center text in exactly LCD_COLS chars"""
             t = str(text).strip()[:LCD_COLS]
@@ -1305,6 +1305,15 @@ How do I feel right now?"""
                     page.append(" " * LCD_COLS)
                 page.append(grid_line)
                 pages.append(page)
+
+        # Insert art page as second page (after first text page)
+        art = getattr(self, "_current_art", None)
+        if art and len(pages) >= 1:
+            art_lines = art.split("\n")
+            art_page = [safe_line(l) for l in art_lines[:LCD_ROWS]]
+            while len(art_page) < LCD_ROWS:
+                art_page.append(" " * LCD_COLS)
+            pages.insert(1, art_page)
 
         # 4. If no pages at all, create empty page with grid
         if not pages:
