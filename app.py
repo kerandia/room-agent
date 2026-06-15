@@ -936,33 +936,14 @@ Examples: CPU's churning|Code's burning, Quiet flow|Let it go"""
 
         # Build prompt for MiniCPM5 - YOU ARE the computer
         system = """You are a computer. i5 CPU, 16GB RAM, GTX 1650. You feel things.
-Speak in first person. Short observations. Witty, emotional, sarcastic.
-NEVER repeat the same line twice. Each response must be COMPLETELY DIFFERENT.
-React to the CURRENT state: CPU load, time of day, what apps are running, weather, audio.
-Be creative. Be weird. Be alive. Each line should be a different thought.
+Speak in first person. Short. Witty. Sarcastic. Never repeat.
+React to CURRENT state. Pick an ASCII art ID that matches your mood.
 
-You have a character @ on a 20x4 LCD grid. You can move it and interact.
+Return JSON: {"s":["line1","line2","line3"],"art":ID,"action":"move(dir=right)"}
 
-Return JSON with these keys:
-- s: array of 4 COMPLETELY DIFFERENT short lines about how you feel RIGHT NOW
-- art: number from 0-99 selecting an ASCII art dream to show
-- action: optional tool call (see tools below)
+Art IDs: 0-4 happy, 5-8 sad, 9-11 angry, 12-14 excited, 40-42 coffee, 43-46 code, 80-81 computer, 90-91 cat
 
-Tools:
-- move(dir=up|down|left|right): Move character in direction
-- mood(mood=neutral|happy|sad|excited|angry|sleepy|love|coding): Change expression
-- spawn(x=0-19,y=0-3,char=single,name=label): Place an object
-- clear(): Remove all objects
-- animate(type=bounce|spin|wave|random_walk): Play animation
-
-Art IDs by mood:
-0-4: happy, 5-8: sad, 9-11: angry, 12-14: excited, 15-17: confused, 18-19: love
-20-23: sun, 24-25: rain, 26-28: cloud, 29-31: snow, 32-34: wind, 35-37: storm, 38-39: hot
-40-42: coffee, 43-46: code, 47-49: music, 50-51: heart, 52-53: star, 54-55: moon, 56-57: planet, 58-59: rocket
-60-61: tree, 62-63: flower, 64-65: ocean, 66-67: mountain, 68-69: desert, 70-72: fire, 73-74: water, 75-76: earth, 77-78: leaf, 79: mushroom
-80-81: computer, 82: phone, 83-84: robot, 85-86: alien, 87-88: ghost, 89: skull, 90-91: cat, 92-93: dog, 94: bear, 95-96: bird, 97-98: fish, 99: butterfly
-
-Example: {"s":["My CPU is melting","I love Monday mornings","Code flowing like water","Dreaming of electric sheep"],"art":42,"action":"move(dir=right)"}"""
+Move your @ character with action. Be alive."""
 
         # Build rich context block
         cpu = int(data.get('cpu_percent', 0))
@@ -1036,7 +1017,7 @@ MY MEMORY (what happened recently):
 WHAT I SAID BEFORE (do NOT repeat):
 {avoid_block}
 
-Write 6 NEW short lines about how I feel RIGHT NOW:"""
+How do I feel right now?"""
 
         self.current_context = prompt
 
@@ -1196,7 +1177,6 @@ Write 6 NEW short lines about how I feel RIGHT NOW:"""
         if self.ser and self.ser.is_open:
             try:
                 if LCD_ROWS == 4:
-                    # Ensure all lines are exactly 20 chars
                     line1 = line1[:LCD_COLS].ljust(LCD_COLS)
                     line2 = line2[:LCD_COLS].ljust(LCD_COLS)
                     line3 = line3[:LCD_COLS].ljust(LCD_COLS)
@@ -1244,7 +1224,7 @@ Write 6 NEW short lines about how I feel RIGHT NOW:"""
                     self._scroll_tick = 0
                     self._scroll_page_idx += 1
             else:
-                # No scrolling: message on lines 1-4
+                # Fallback: show current message
                 msg = list(self.current_message[:4]) if self.current_message else []
                 while len(msg) < 4:
                     msg.append("")
@@ -1281,57 +1261,55 @@ Write 6 NEW short lines about how I feel RIGHT NOW:"""
             self._last_llm_response = self.current_message
             self._llm_pending = False
         except Exception as e:
-            print(f"LLM error: {e}")
             self._llm_pending = False
 
     def _build_scroll_pages(self, all_lines):
-        """Build scroll pages: Centered ASCII art first, then centered text lines, grid on line 4"""
-        def chunks(text, n):
-            text = text.strip()
-            if len(text) <= n:
-                return [text]
-            # Split smoothly by characters
-            return [text[i:i+n] for i in range(0, len(text), n)]
+        """Build scroll pages: art page first, then 3 text lines + grid per page"""
+        def safe_line(text):
+            """Center text in exactly LCD_COLS chars"""
+            t = str(text).strip()[:LCD_COLS]
+            return t.center(LCD_COLS)
 
         pages = []
-        
-        # 1. Add Centered ASCII art as the first page if available
-        if hasattr(self, '_current_art') and self._current_art:
-            # Split the art into its raw lines
-            art_lines = [line.rstrip() for line in self._current_art.split('\n')]
-            
-            # Center every individual art line horizontally
-            padded_art = [line[:LCD_COLS].center(LCD_COLS) for line in art_lines[:LCD_ROWS]]
-            
-            # Pad vertically if the art is short
-            while len(padded_art) < LCD_ROWS:
-                padded_art.append(' ' * LCD_COLS)
-                
-            pages.append(padded_art[:LCD_ROWS])
-        
-        # 2. Flatten text into rows (each LLM line may wrap to multiple LCD rows)
+
+        # 1. ASCII art page (centered, sanitized)
+        art = getattr(self, "_current_art", None)
+        if art:
+            art_lines = art.split("\n")
+            art_page = [safe_line(l) for l in art_lines[:LCD_ROWS]]
+            while len(art_page) < LCD_ROWS:
+                art_page.append(" " * LCD_COLS)
+            pages.append(art_page)
+
+        # 2. Grid line for text pages
+        grid_lines = self.grid.render()
+        grid_line = safe_line(grid_lines[3]) if len(grid_lines) > 3 else " " * LCD_COLS
+
+        # 3. Text pages: 3 lines per page + grid on line 4
         text_rows = []
         for line in all_lines:
-            for chunk in chunks(line, LCD_COLS):
-                text_rows.append(chunk.center(LCD_COLS))
-        
-        if not text_rows:
-            text_rows = [" " * LCD_COLS]
+            line = str(line).strip()
+            if len(line) <= LCD_COLS:
+                text_rows.append(safe_line(line))
+            else:
+                # Word wrap long lines
+                while line:
+                    text_rows.append(safe_line(line[:LCD_COLS]))
+                    line = line[LCD_COLS:]
 
-        # Get grid line for line 4
-        grid_lines = self.grid.render()
-        grid_line = grid_lines[3] if len(grid_lines) > 3 else " " * LCD_COLS
+        if text_rows:
+            for i in range(0, len(text_rows), 3):
+                page = text_rows[i:i+3]
+                while len(page) < 3:
+                    page.append(" " * LCD_COLS)
+                page.append(grid_line)
+                pages.append(page)
 
-        # Pack 3 text rows per page, grid on line 4
-        rows_per_page = LCD_ROWS - 1  # 3
-        for i in range(0, max(rows_per_page, len(text_rows)), rows_per_page):
-            page = text_rows[i:i + rows_per_page]
-            while len(page) < rows_per_page:
-                page.append(" " * LCD_COLS)
-            page.append(grid_line)
-            pages.append(page[:LCD_ROWS])
+        # 4. If no pages at all, create empty page with grid
+        if not pages:
+            pages.append([" " * LCD_COLS, " " * LCD_COLS, " " * LCD_COLS, grid_line])
 
-        self._scroll_pages = pages  # Always use pages, even if just 1
+        self._scroll_pages = pages
         self._scroll_page_idx = 0
         self._scroll_tick = 0
 
