@@ -1178,11 +1178,10 @@ How do I feel right now?"""
         if self.ser and self.ser.is_open:
             try:
                 if LCD_ROWS == 4:
-                    # Reverse order for this LCD hardware
-                    l1 = str(line4)[:LCD_COLS].ljust(LCD_COLS)
-                    l2 = str(line3)[:LCD_COLS].ljust(LCD_COLS)
-                    l3 = str(line2)[:LCD_COLS].ljust(LCD_COLS)
-                    l4 = str(line1)[:LCD_COLS].ljust(LCD_COLS)
+                    l1 = str(line1)[:LCD_COLS].ljust(LCD_COLS)
+                    l2 = str(line2)[:LCD_COLS].ljust(LCD_COLS)
+                    l3 = str(line3)[:LCD_COLS].ljust(LCD_COLS)
+                    l4 = str(line4)[:LCD_COLS].ljust(LCD_COLS)
                     self.ser.write(f"say:{l1}|{l2}|{l3}|{l4}\n".encode())
             except:
                 pass
