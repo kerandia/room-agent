@@ -7,19 +7,19 @@ import random
 
 DREAMS = {
     # === EMOTIONS (0-19) ===
-    0: {"cat": "happy", "art": "   ^_^    \n  /   \\   \n  |   |   \n   ---    "},
-    1: {"cat": "happy", "art": "  \\o/     \n   |      \n  / \\     \n  YAY!    "},
+    0: {"cat": "happy", "art": "   ^_^    \n  /   /   \n  |   |   \n   ---    "},
+    1: {"cat": "happy", "art": "  o/      \n   |      \n  / \\     \n  YAY!    "},
     2: {"cat": "happy", "art": "  .---.   \n / ^_^ \\  \n |     |  \n '---'    "},
-    3: {"cat": "happy", "art": "  \\(^_^)/ \n   |   |  \n  /|   |\\ \n    |_|   "},
-    4: {"cat": "happy", "art": "   \\o/    \n    |     \n   / \\    \n  ^_^     "},
+    3: {"cat": "happy", "art": "  o(^_^)o \n   |   |  \n  /|   |\\ \n    |_|   "},
+    4: {"cat": "happy", "art": "   o/     \n    |     \n   / \\    \n  ^_^     "},
     5: {"cat": "sad", "art": "   .-.    \n  (   )   \n   '-'    \n   T_T    "},
     6: {"cat": "sad", "art": "   ;_;    \n    |     \n   / \\    \n  (sigh)  "},
-    7: {"cat": "sad", "art": "  .---.   \n / x_x \\  \n |  T  |  \n \\___/    "},
+    7: {"cat": "sad", "art": "  .---.   \n / x_x \\  \n |  T  |  \n  \\___/   "},
     8: {"cat": "sad", "art": "   .__.   \n  /    \\  \n | -- |   \n  \\__/    "},
     9: {"cat": "angry", "art": "  >_<     \n  | |     \n  / \\     \n  GRR!    "},
     10: {"cat": "angry", "art": "  .---.   \n / >_< \\  \n | RAGE | \n '---'    "},
     11: {"cat": "angry", "art": "  #_#     \n  | |     \n  / \\     \n  MAD!    "},
-    12: {"cat": "excited", "art": "  \\o/     \n   |      \n  / \\     \n  WOW!    "},
+    12: {"cat": "excited", "art": "  o/      \n   |      \n  / \\     \n  WOW!    "},
     13: {"cat": "excited", "art": "  * * *   \n * * * *  \n  * * *   \n  YAY!    "},
     14: {"cat": "excited", "art": "  .---.   \n / ^_^ \\  \n | OMG! | \n '---'    "},
     15: {"cat": "confused", "art": "   ?      \n  ? ?     \n   ?      \n  (???)   "},
@@ -29,9 +29,9 @@ DREAMS = {
     19: {"cat": "love", "art": "  .---.   \n / <3 \\   \n | love | \n '---'    "},
 
     # === WEATHER (20-39) ===
-    20: {"cat": "sun", "art": "    \\ /   \n     O     \n    / \\    \n          "},
+    20: {"cat": "sun", "art": "    / \\   \n     O     \n    / \\    \n          "},
     21: {"cat": "sun", "art": "     *    \n   * O *   \n     *     \n          "},
-    22: {"cat": "sun", "art": "   \\   /  \n    ---    \n   /   \\   \n          "},
+    22: {"cat": "sun", "art": "   /   \\  \n    ---    \n   /   \\   \n          "},
     23: {"cat": "rain", "art": "   .-.    \n  (   )   \n   '-'    \n   | |    "},
     24: {"cat": "rain", "art": "   ~~~    \n   / /    \n  / / /   \n          "},
     25: {"cat": "rain", "art": "  .---.   \n / o o \\  \n |  .  |  \n  \\___/   "},
@@ -122,6 +122,9 @@ def get_dream_by_id(dream_id):
     """Get LCD-optimized ASCII art by ID, normalized to 4 lines x 20 chars"""
     dream = DREAMS.get(dream_id % 100, DREAMS[0])
     art = dream["art"]
+    
+    # Sanitize: replace backslash with forward slash (HD44780 ROM A00 can't display \)
+    art = art.replace('\\', '/')
     
     # Normalize to exactly 4 lines, max 20 chars
     lines = art.split('\n')

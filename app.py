@@ -1309,32 +1309,25 @@ Write 6 NEW short lines about how I feel RIGHT NOW:"""
                 
             pages.append(padded_art[:LCD_ROWS])
         
-        # 2. Process the text lines ("s") from your LLM output
-        # We chunk them, but we make sure every broken piece is beautifully centered!
-        chunked = []
+        # 2. Flatten text into rows (each LLM line may wrap to multiple LCD rows)
+        text_rows = []
         for line in all_lines:
-            line_chunks = chunks(line, LCD_COLS)
-            # CRITICAL: Center every text fragment horizontally!
-            centered_chunks = [c.center(LCD_COLS) for c in line_chunks]
-            chunked.append(centered_chunks)
-            
-        max_pages = max(len(c) for c in chunked) if chunked else 1
+            for chunk in chunks(line, LCD_COLS):
+                text_rows.append(chunk.center(LCD_COLS))
+        
+        if not text_rows:
+            text_rows = [" " * LCD_COLS]
 
-        # Get grid line (always anchored on line 4)
+        # Get grid line for line 4
         grid_lines = self.grid.render()
         grid_line = grid_lines[3] if len(grid_lines) > 3 else " " * LCD_COLS
 
-        # Distribute the centered text chunks across scrolling pages
-        for i in range(max_pages):
-            page = []
-            for c in chunked:
-                page.append(c[i] if i < len(c) else " " * LCD_COLS)
-            
-            # Fill empty lines with spaces up to row 3
-            while len(page) < LCD_ROWS - 1:
+        # Pack 3 text rows per page, grid on line 4
+        rows_per_page = LCD_ROWS - 1  # 3
+        for i in range(0, max(rows_per_page, len(text_rows)), rows_per_page):
+            page = text_rows[i:i + rows_per_page]
+            while len(page) < rows_per_page:
                 page.append(" " * LCD_COLS)
-                
-            # Inject your animated grid character onto row 4
             page.append(grid_line)
             pages.append(page[:LCD_ROWS])
 
