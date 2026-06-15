@@ -988,6 +988,10 @@ Be alive."""
         temp = weather.get("temp", "?")
         weather_block = f"Outside: {temp}C" if temp != "?" else ""
 
+        # WiFi signal
+        wifi_pct = data.get("wifi_percent")
+        wifi_block = f"WiFi: {wifi_pct}% connected" if wifi_pct else "WiFi: disconnected"
+
         # Session memory - what happened recently
         recent_history = list(self.history)[-5:]
         if recent_history:
@@ -1010,6 +1014,7 @@ Time: {day} {when} | Pattern: {pattern}
 Apps: {proc_list}
 {clip_block}
 {weather_block}
+{wifi_block}
 {audio_block}
 
 MY MEMORY (what happened recently):
@@ -1275,20 +1280,11 @@ How do I feel right now?"""
 
         pages = []
 
-        # 1. ASCII art page (centered, sanitized)
-        art = getattr(self, "_current_art", None)
-        if art:
-            art_lines = art.split("\n")
-            art_page = [safe_line(l) for l in art_lines[:LCD_ROWS]]
-            while len(art_page) < LCD_ROWS:
-                art_page.append(" " * LCD_COLS)
-            pages.append(art_page)
-
-        # 2. Grid line for text pages
+        # Get grid line for text pages
         grid_lines = self.grid.render()
         grid_line = safe_line(grid_lines[3]) if len(grid_lines) > 3 else " " * LCD_COLS
 
-        # 3. Text pages: 3 lines per page + grid on line 4
+        # Text pages: 3 lines per page + grid on line 4
         text_rows = []
         for line in all_lines:
             line = str(line).strip()
