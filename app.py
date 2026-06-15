@@ -1196,6 +1196,11 @@ Write 6 NEW short lines about how I feel RIGHT NOW:"""
         if self.ser and self.ser.is_open:
             try:
                 if LCD_ROWS == 4:
+                    # Ensure all lines are exactly 20 chars
+                    line1 = line1[:LCD_COLS].ljust(LCD_COLS)
+                    line2 = line2[:LCD_COLS].ljust(LCD_COLS)
+                    line3 = line3[:LCD_COLS].ljust(LCD_COLS)
+                    line4 = line4[:LCD_COLS].ljust(LCD_COLS)
                     self.ser.write(f"say:{line1}|{line2}|{line3}|{line4}\n".encode())
                 else:
                     self.ser.write(f"say:{line1}|{line2}\n".encode())
@@ -1333,7 +1338,7 @@ Write 6 NEW short lines about how I feel RIGHT NOW:"""
             page.append(grid_line)
             pages.append(page[:LCD_ROWS])
 
-        self._scroll_pages = pages if len(pages) > 1 else []
+        self._scroll_pages = pages  # Always use pages, even if just 1
         self._scroll_page_idx = 0
         self._scroll_tick = 0
 
