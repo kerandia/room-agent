@@ -437,11 +437,6 @@ class AmbientAudio:
 if ON_HF:
     LLM_MODE = "HF Inference API"
     LLM_MODEL = "HuggingFaceH4/zephyr-7b-beta"
-elif LLM_BACKEND == "university":
-    LLM_MODE = "University (Qwen-3.6)"
-    LLM_MODEL = "Qwen-3.6"
-    UNI_API_URL = "https://ai.h2.de/llm/v1"
-    UNI_API_KEY = "sk-1234"
 else:
     LLM_MODE = "Local Ollama (MiniCPM5-1B)"
     LLM_MODEL = "openbmb/minicpm5:latest"
@@ -452,6 +447,62 @@ BAUD_RATE = 9600
 
 # ASCII art dreams - 100+ patterns with IDs, selected by LLM
 from dreams import get_dream_by_id as get_dream
+
+
+# --- ZeroGPU in-Space LLM (HF Spaces only): MiniCPM, the same family we run
+# locally via Ollama. Loaded with transformers; GPU is allocated on demand by
+# the @spaces.GPU decorator. If anything here fails, _hf_gpu_generate stays
+# None and the agent falls back to its rule-based personality. ---
+HF_LLM_MODEL_ID = "openbmb/MiniCPM5-1B"
+_hf_tok = None
+_hf_model = None
+_hf_gpu_generate = None
+
+if ON_HF:
+    try:
+        import spaces
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        print(f"Loading ZeroGPU model: {HF_LLM_MODEL_ID}")
+        _hf_tok = AutoTokenizer.from_pretrained(HF_LLM_MODEL_ID)
+        _hf_model = AutoModelForCausalLM.from_pretrained(
+            HF_LLM_MODEL_ID, torch_dtype=torch.bfloat16
+        )
+        _hf_model.eval()
+
+        @spaces.GPU(duration=25)
+        def _hf_gpu_generate(messages, max_new_tokens=96):
+            model = _hf_model.to("cuda")
+            try:
+                # Ask the model not to emit chain-of-thought, if it supports it
+                text = _hf_tok.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True,
+                    enable_thinking=False,
+                )
+            except TypeError:
+                text = _hf_tok.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True
+                )
+            inputs = _hf_tok(text, return_tensors="pt").to("cuda")
+            with torch.no_grad():
+                out = model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=True,
+                    temperature=0.9,
+                    top_p=0.9,
+                    repetition_penalty=1.3,
+                    pad_token_id=(_hf_tok.eos_token_id or _hf_tok.pad_token_id or 0),
+                )
+            gen = out[0][inputs["input_ids"].shape[1]:]
+            return _hf_tok.decode(gen, skip_special_tokens=True).strip()
+
+        LLM_MODE = "ZeroGPU MiniCPM5-1B"
+        print("ZeroGPU model ready")
+    except Exception as _e:
+        print(f"ZeroGPU LLM unavailable, using rule-based fallback: {_e}")
+        _hf_gpu_generate = None
 
 
 class ContextCompiler:
@@ -728,7 +779,7 @@ class Joe:
         self.running = False
         self.history = deque(maxlen=30)
         self.current_data = {}
-        self.current_message = ("Joe", "Starting...", "", "")
+        self.current_message = ("Hi, I am Joe", "Press Start", "to wake me up", "")
         self.current_ascii = ""
         self.current_context = ""
         self.current_thinking = ""
@@ -911,51 +962,33 @@ class Joe:
 
     def call_llm(self, prompt, system_prompt=None):
         try:
-            if LLM_BACKEND == "university":
-                return self._call_university(prompt, system_prompt)
-            elif LLM_BACKEND == "hf":
-                return self._call_hf_api(prompt, system_prompt)
+            if ON_HF:
+                return self._call_zerogpu(prompt, system_prompt)
             else:
                 return self._call_ollama(prompt, system_prompt)
         except Exception as e:
             self.last_api_call = {"time": datetime.now().strftime("%H:%M:%S"), "model": LLM_MODEL, "response": f"ERROR: {e}", "status": "error"}
             return None
 
-    def _call_university(self, prompt, system_prompt=None):
-        if not system_prompt:
-            system_prompt = """ROOM AI on 20x4 LCD. Witty, terse, friend not bot.
-Return 2 lines | separated, max 20 chars each.
-NEVER: Room, Agent, Watching, over, good, OK, fine, cool, nice.
-CRITICAL: NEVER use backslash character. LCD cannot display it.
-Use only: / | - _ and letters.
-Examples: CPU's churning|Code's burning, Quiet flow|Let it go"""
-
-        headers = {"Authorization": f"Bearer {UNI_API_KEY}", "Content-Type": "application/json"}
-        payload = {
-            "model": LLM_MODEL,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.95,
-            "max_tokens": 100
-        }
+    def _call_zerogpu(self, prompt, system_prompt=None):
+        """Generate on the in-Space MiniCPM via ZeroGPU. Returns None if the
+        model isn't available, so the caller falls back gracefully."""
+        if _hf_gpu_generate is None:
+            return None
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
         start = time.time()
-        r = requests.post(f"{UNI_API_URL}/chat/completions", headers=headers, json=payload, timeout=15)
+        content = _hf_gpu_generate(messages)
         elapsed = time.time() - start
-        r.raise_for_status()
-        resp = r.json()
-        content = resp["choices"][0]["message"]["content"].strip()
         self.last_api_call = {
             "time": datetime.now().strftime("%H:%M:%S"),
-            "prompt_tokens": resp.get("usage", {}).get("prompt_tokens", 0),
-            "completion_tokens": resp.get("usage", {}).get("completion_tokens", 0),
             "response_time": f"{elapsed:.2f}s",
-            "model": LLM_MODEL,
+            "model": "MiniCPM-1B (ZeroGPU)",
             "response": content,
             "status": 200,
-            "mode": "University API",
-            "request_id": resp.get("id", "?")
+            "mode": "ZeroGPU",
         }
         return content
 
@@ -1065,8 +1098,8 @@ Be alive."""
                 audio_block = f"- Room audio: Background noise (level: {level})"
 
         # Build prompt for MiniCPM5 - YOU ARE Joe
-        # Get hardware specs dynamically
-        cpu_name, ram_gb, gpu_name = self._get_hardware_specs()
+        # Get hardware specs dynamically (method lives on the ContextCompiler)
+        cpu_name, ram_gb, gpu_name = self.compiler._get_hardware_specs()
 
         system = f"""You are Joe, a slightly dramatic computer that lives on a tiny 20x4 screen.
 You have a {cpu_name} CPU, {ram_gb}GB RAM, {gpu_name} GPU. You feel things deeply.
@@ -1174,38 +1207,55 @@ How do I feel right now?"""
         response = self.call_llm(prompt, system_prompt=system)
 
         if response:
+            # Strip any chain-of-thought blocks the model emits, then ASCII-clean
+            response = re.sub(r"<think>.*?</think>", " ", response, flags=re.DOTALL | re.IGNORECASE)
+            response = re.sub(r"</?think>", " ", response, flags=re.IGNORECASE)
             response = response.encode('ascii', errors='ignore').decode('ascii').strip()
-            # Try JSON parse (MiniCPM5 with format param returns JSON)
+
+            parsed = {}
+            art_id = None
+            lines = []
+
+            # Find a JSON object even if the model wrapped it in prose
+            m = re.search(r"\{.*\}", response, flags=re.DOTALL)
+            candidate = m.group(0) if m else response
             try:
-                parsed = json.loads(response)
-                lines = parsed.get("s", [])
+                parsed = json.loads(candidate)
+                if not isinstance(parsed, dict):
+                    parsed = {}
+                lines = parsed.get("s") or parsed.get("message") or []
                 if not lines:
-                    lines = parsed.get("message", [])
-                if not lines:
-                    # Handle t1, t2, t3... format
                     lines = [parsed.get(f"t{i}", "") for i in range(1, 7) if parsed.get(f"t{i}")]
                 if not lines:
                     lines = [parsed.get(f"l{i+1}", "") for i in range(4) if parsed.get(f"l{i+1}")]
-                
-                # Get art ID from LLM response
                 art_id = parsed.get("art", None)
                 if art_id is not None:
                     try:
                         art_id = int(art_id)
                     except (ValueError, TypeError):
                         art_id = None
-            except (json.JSONDecodeError, KeyError, TypeError):
-                # Fallback: pipe-separated
-                response = response.replace('\n', ' ').replace('\r', '')
-                response = response.strip('|').strip()
-                lines = [p.strip() for p in response.split("|") if p.strip()]
+            except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
+                parsed = {}
+
+            # No usable JSON lines? Derive short lines from the prose itself.
+            if not lines:
+                text = re.sub(r"\s+", " ", response).strip()
+                frags = re.split(r"[.!?\n|]+", text)
+                lines = [f.strip() for f in frags if len(f.strip()) > 2][:6]
+
+            # Normalize to a flat list of strings (model JSON can be messy:
+            # bools, ints, nested values, or a bare string instead of a list).
+            if isinstance(lines, (str, bytes)):
+                lines = [lines]
+            elif not isinstance(lines, list):
+                lines = []
 
             if lines:
                 # Deduplicate and clean
                 seen = set()
                 clean = []
                 for l in lines:
-                    l = l.strip().strip('.')
+                    l = str(l).strip().strip('.')
                     if l and l.lower() not in seen and len(l) > 2:
                         seen.add(l.lower())
                         clean.append(l)
@@ -1232,8 +1282,8 @@ How do I feel right now?"""
                         if rnd.random() < 0.3:  # 30% chance to move
                             dirs = ["up", "down", "left", "right"]
                             self.grid.move(rnd.choice(dirs))
-                    
-                    return tuple(lines)
+
+                    return tuple(lines[:4])
 
         # Fallback with context awareness
         self.agent_thinking = False
@@ -1406,7 +1456,7 @@ How do I feel right now?"""
             data.get("minute", 0) // 5,  # Refresh every 5 min
             data.get("user_pattern", ""),
             data.get("audio", {}).get("type", ""),
-            int(time.time()) // 30,  # Force refresh every 30s
+            int(time.time()) // 90,  # Throttle: at most one new generation ~90s
         ]
         return hashlib.md5(str(key_parts).encode()).hexdigest()[:8]
 
@@ -1502,7 +1552,10 @@ def connect():
 
 def start():
     agent.running = True
-    threading.Thread(target=agent.agent_loop, daemon=True).start()
+    # On HF the Gradio Timer drives the agent (ZeroGPU needs a request context);
+    # only spin a background loop for the local hardware build.
+    if not ON_HF:
+        threading.Thread(target=agent.agent_loop, daemon=True).start()
     return f"Agent started ({LLM_MODE})"
 
 def stop():
@@ -1579,8 +1632,44 @@ Tokens: {api.get('prompt_tokens', '?')} in / {api.get('completion_tokens', '?')}
 
     return lcd, status, api_log, history, thought
 
+def hf_step():
+    """One agent iteration driven by the Gradio Timer. On HF Spaces the LLM
+    must be called from a request context (not a background thread) so ZeroGPU
+    can allocate a GPU — that's what this provides. Returns dashboard outputs."""
+    # Only consume GPU when explicitly running (Start button). Idle/abandoned
+    # browser tabs just refresh the display and cost zero GPU.
+    if not agent.running:
+        return refresh_all()
+    try:
+        data = agent.collect_data()
+        data["audio"] = agent.audio.get_context()
+        ctx_key = agent._get_context_hash(data)
+        if ctx_key != agent._last_llm_context:
+            agent._last_llm_context = ctx_key
+            agent._scroll_tick = 0
+            result = agent.agent_decide(data)        # -> _call_zerogpu -> @spaces.GPU
+            agent.current_message = result
+            agent._build_scroll_pages(result)
+            agent._last_llm_response = result
+            if len(result) >= 2:
+                agent.history.append({
+                    "time": data["time_str"], "cpu": data["cpu_percent"],
+                    "memory": data["memory_percent"],
+                    "message": f"{result[0]} | {result[1]}",
+                })
+        # advance the scroll page every couple of ticks
+        if agent._scroll_pages:
+            agent._scroll_tick += 1
+            if agent._scroll_tick >= 2:
+                agent._scroll_tick = 0
+                agent._scroll_page_idx += 1
+    except Exception as e:
+        print(f"hf_step error: {e}")
+    return refresh_all()
+
+
 def create_ui():
-    with gr.Blocks(title="Joe", theme=gr.themes.Soft()) as demo:
+    with gr.Blocks(title="Joe") as demo:
         gr.Markdown(f"""# Joe
 A self-aware AI personality living on a 20x4 LCD.
 **LLM:** {LLM_MODE} | **Pipeline:** Data → Context Compiler → Few-Shot LLM → LCD""")
@@ -1601,15 +1690,31 @@ A self-aware AI personality living on a 20x4 LCD.
         connect_btn.click(fn=connect)
         start_btn.click(fn=start)
         stop_btn.click(fn=stop)
-        demo.load(fn=refresh_all, inputs=None, outputs=[lcd_preview, status_output, api_log, history_output, thought_output], every=3)
+
+        outputs = [lcd_preview, status_output, api_log, history_output, thought_output]
+        demo.load(fn=refresh_all, inputs=None, outputs=outputs)
+        # Gradio 6 removed `every=` from events; use a Timer.
+        if ON_HF:
+            # On HF, the Timer also DRIVES the agent so ZeroGPU runs in-request.
+            agent_timer = gr.Timer(LOOP_INTERVAL)
+            agent_timer.tick(fn=hf_step, inputs=None, outputs=outputs)
+        else:
+            # Local: a background thread drives the agent; Timer only refreshes.
+            refresh_timer = gr.Timer(3)
+            refresh_timer.tick(fn=refresh_all, inputs=None, outputs=outputs)
 
     return demo
 
 if __name__ == "__main__":
     demo = create_ui()
-    # Auto-start on HF Spaces
+    # On HF the Gradio Timer (hf_step) drives the agent in a request context so
+    # ZeroGPU can allocate a GPU — no background thread needed. Locally, the
+    # Start button launches the background agent_loop.
+    theme = gr.themes.Soft()  # Gradio 6 moved theme from Blocks() to launch()
     if ON_HF:
-        agent.running = True
-        threading.Thread(target=agent.agent_loop, daemon=True).start()
-        print("Joe auto-started on HF Spaces")
-    demo.launch(share=True, server_name="0.0.0.0", server_port=7862)
+        # HF Spaces proxies port 7860. ssr_mode=False disables Gradio 6's
+        # Node/SSR proxy, which otherwise fails HF's health check and tears
+        # the app down.
+        demo.launch(theme=theme, server_name="0.0.0.0", server_port=7860, ssr_mode=False)
+    else:
+        demo.launch(theme=theme, share=True, server_name="0.0.0.0", server_port=7862, ssr_mode=False)

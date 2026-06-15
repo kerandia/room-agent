@@ -4,10 +4,24 @@ emoji: 🤖
 colorFrom: blue
 colorTo: purple
 sdk: gradio
-sdk_version: 4.44.1
+sdk_version: 6.17.3
+python_version: "3.12"
 app_file: app.py
-pinned: false
+pinned: true
 license: mit
+short_description: A dramatic AI personality living on a 20x4 LCD screen
+tags:
+- gradio
+- build-small-hackathon
+- track:wood
+- achievement:offgrid
+- badge-tiny-titan
+- arduino
+- lcd
+- local-llm
+- minicpm
+- cohere
+- whisper
 ---
 
 # Joe
@@ -43,5 +57,14 @@ This Space runs **MiniCPM5-1B** directly via HuggingFace transformers — same m
 
 ## HF Build Small Hackathon
 This project was built for the [HF Build Small Hackathon](https://huggingface.co/build/small). All models used are ≤32B parameters.
-- **Primary model**: MiniCPM5-1B (1.08B params, Apache-2.0)
-- **Fallback model**: zephyr-7b-beta (7B params, MIT)
+- **Track**: Thousand Token Wood (whimsical / entertainment) — `track:wood`
+- **Achievements claimed**: Off-Grid (`achievement:offgrid`, runs a fully local LLM, no cloud API) · Tiny Titan (`badge-tiny-titan`, 1.08B model)
+- **Primary LLM**: MiniCPM5-1B (1.08B params, Apache-2.0)
+- **Fallback LLM**: zephyr-7b-beta (7B params, MIT)
+- **Speech-to-text**: Cohere Transcribe 03 (~2B params, runs in a persistent daemon) with Whisper-tiny fallback
+
+All models run individually well under the 32B cap.
+
+### Submission links
+- **Demo video**: https://youtu.be/eBcLilTYz9Y
+- **Social post**: https://x.com/ssaacar/status/2066630310410829835
