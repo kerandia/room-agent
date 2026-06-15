@@ -26,7 +26,7 @@ A self-aware AI personality living on a 20x4 LCD screen. Joe monitors your compu
 - Arduino Uno + 20x4 I2C LCD (2004A)
 - Works without hardware in demo mode
 
-## Setup
+## Setup (local)
 ```bash
 pip install -r requirements.txt
 # Install Ollama and pull MiniCPM5-1B
@@ -34,5 +34,14 @@ ollama pull openbmb/minicpm5:latest
 python app.py
 ```
 
+## HF Spaces (live demo)
+This Space runs **MiniCPM5-1B** directly via HuggingFace transformers — same model as local.
+- **First load**: ~30-60s (downloads ~1GB model weights)
+- **Inference**: ~2-5s per response on CPU
+- **No Ollama needed**: model loads into memory on startup
+- **Fallback**: if transformers fails, falls back to HF Inference API (zephyr-7b)
+
 ## HF Build Small Hackathon
 This project was built for the [HF Build Small Hackathon](https://huggingface.co/build/small). All models used are ≤32B parameters.
+- **Primary model**: MiniCPM5-1B (1.08B params, Apache-2.0)
+- **Fallback model**: zephyr-7b-beta (7B params, MIT)
