@@ -938,12 +938,13 @@ Examples: CPU's churning|Code's burning, Quiet flow|Let it go"""
         system = """You are a computer. i5 CPU, 16GB RAM, GTX 1650. You feel things.
 Speak in first person. Short. Witty. Sarcastic. Never repeat.
 React to CURRENT state. Pick an ASCII art ID that matches your mood.
+You MUST return exactly 3 lines in the s array.
 
-Return JSON: {"s":["line1","line2","line3"],"art":ID,"action":"move(dir=right)"}
+Return JSON: {"s":["line1","line2","line3"],"art":ID}
 
 Art IDs: 0-4 happy, 5-8 sad, 9-11 angry, 12-14 excited, 40-42 coffee, 43-46 code, 80-81 computer, 90-91 cat
 
-Move your @ character with action. Be alive."""
+Be alive."""
 
         # Build rich context block
         cpu = int(data.get('cpu_percent', 0))
@@ -1292,13 +1293,13 @@ How do I feel right now?"""
         text_rows = []
         for line in all_lines:
             line = str(line).strip()
-            if len(line) <= LCD_COLS:
-                text_rows.append(safe_line(line))
-            else:
-                # Word wrap long lines
-                while line:
-                    text_rows.append(safe_line(line[:LCD_COLS]))
-                    line = line[LCD_COLS:]
+            if not line:
+                line = "..."
+            text_rows.append(safe_line(line))
+
+        # Always pad to 3 lines
+        while len(text_rows) < 3:
+            text_rows.append(" " * LCD_COLS)
 
         if text_rows:
             for i in range(0, len(text_rows), 3):
