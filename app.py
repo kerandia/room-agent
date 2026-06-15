@@ -1414,15 +1414,17 @@ How do I feel right now?"""
         """Run LLM decision in background thread"""
         try:
             result = self.agent_decide(data)
-            self.current_message = result
-            self._build_scroll_pages(result)
-            self._last_llm_response = self.current_message
+            if result:
+                self.current_message = result
+                self._build_scroll_pages(result)
+                self._last_llm_response = self.current_message
             self._llm_pending = False
             # Record to persistent memory
             art_id = getattr(self, '_current_art_id', None)
             cpu = data.get('cpu_percent', None)
             self.memory.record_message(art_id=art_id, cpu=cpu)
         except Exception as e:
+            print(f"LLM ERROR: {e}")
             self._llm_pending = False
 
     def _build_scroll_pages(self, all_lines):
