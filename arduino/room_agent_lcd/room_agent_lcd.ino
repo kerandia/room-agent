@@ -28,11 +28,11 @@ void setup() {
   lcd.clear();
   
   lcd.setCursor(0, 0);
-  lcd.print("Joe v1.0");
+  lcd.print("Joe is waking up...");
   lcd.setCursor(0, 1);
-  lcd.print("Starting...");
+  lcd.print("Please wait...");
   
-  Serial.println("LCD READY");
+  Serial.println("JOE READY");
 }
 
 void loop() {
