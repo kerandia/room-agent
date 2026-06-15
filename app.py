@@ -1177,11 +1177,12 @@ How do I feel right now?"""
         if self.ser and self.ser.is_open:
             try:
                 if LCD_ROWS == 4:
-                    line1 = line1[:LCD_COLS].ljust(LCD_COLS)
-                    line2 = line2[:LCD_COLS].ljust(LCD_COLS)
-                    line3 = line3[:LCD_COLS].ljust(LCD_COLS)
-                    line4 = line4[:LCD_COLS].ljust(LCD_COLS)
-                    self.ser.write(f"say:{line1}|{line2}|{line3}|{line4}\n".encode())
+                    # Reverse order for this LCD hardware
+                    l1 = str(line4)[:LCD_COLS].ljust(LCD_COLS)
+                    l2 = str(line3)[:LCD_COLS].ljust(LCD_COLS)
+                    l3 = str(line2)[:LCD_COLS].ljust(LCD_COLS)
+                    l4 = str(line1)[:LCD_COLS].ljust(LCD_COLS)
+                    self.ser.write(f"say:{l1}|{l2}|{l3}|{l4}\n".encode())
                 else:
                     self.ser.write(f"say:{line1}|{line2}\n".encode())
             except:
