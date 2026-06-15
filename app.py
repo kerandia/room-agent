@@ -30,6 +30,22 @@ LCD_COLS = 20  # 2004A LCD = 20 columns
 LCD_ROWS = 4   # 2004A LCD = 4 rows
 LOOP_INTERVAL = 15  # seconds between LLM calls
 
+
+def lcd_fit(text, width=LCD_COLS):
+    """Make a string safe for an HD44780 2004A LCD.
+
+    The Japanese A00 character ROM maps 0x5C to the yen sign (not '\\') and
+    has no glyphs for most non-ASCII, so we strip backslashes / non-printables
+    and clamp to the physical column count. Used for both the serial output
+    and the on-screen preview so they always match.
+    """
+    if text is None:
+        text = ""
+    text = str(text).replace("\\", "/").replace("\t", " ").replace("\r", "")
+    text = text.encode("ascii", "ignore").decode("ascii")
+    text = "".join(ch for ch in text if ch == " " or ch.isprintable())
+    return text[:width]
+
 # Platform detection
 PLATFORM = platform.system()  # Windows, Darwin, Linux
 IS_WINDOWS = PLATFORM == "Windows"
@@ -1191,10 +1207,14 @@ Write 6 NEW short lines about how I feel RIGHT NOW:"""
     def send_lcd(self, line1, line2, line3="", line4=""):
         if self.ser and self.ser.is_open:
             try:
+                # Sanitize + clamp every line so the physical LCD never gets
+                # backslashes, control chars, or overflow beyond 20 columns.
+                l1, l2, l3, l4 = (lcd_fit(line1), lcd_fit(line2),
+                                  lcd_fit(line3), lcd_fit(line4))
                 if LCD_ROWS == 4:
-                    self.ser.write(f"say:{line1}|{line2}|{line3}|{line4}\n".encode())
+                    self.ser.write(f"say:{l1}|{l2}|{l3}|{l4}\n".encode("ascii", "ignore"))
                 else:
-                    self.ser.write(f"say:{line1}|{line2}\n".encode())
+                    self.ser.write(f"say:{l1}|{l2}\n".encode("ascii", "ignore"))
             except:
                 pass
 
@@ -1275,61 +1295,75 @@ Write 6 NEW short lines about how I feel RIGHT NOW:"""
             print(f"LLM error: {e}")
             self._llm_pending = False
 
+    def _wrap_line(self, text, width=LCD_COLS):
+        """Word-wrap one thought to <=width cols, keeping whole words together.
+
+        Words longer than the display are hard-split as a last resort. Returns
+        a list of sanitized rows (no backslashes / non-ASCII, each <=width)."""
+        text = lcd_fit(text, 10_000)          # sanitize, don't clamp yet
+        text = " ".join(text.split())          # collapse runs of whitespace
+        if not text:
+            return []
+        rows, cur = [], ""
+        for word in text.split(" "):
+            if len(word) > width:              # word can't fit on one row
+                if cur:
+                    rows.append(cur)
+                    cur = ""
+                for i in range(0, len(word), width):
+                    rows.append(word[i:i + width])
+                continue
+            if not cur:
+                cur = word
+            elif len(cur) + 1 + len(word) <= width:
+                cur += " " + word
+            else:
+                rows.append(cur)
+                cur = word
+        if cur:
+            rows.append(cur)
+        return rows
+
     def _build_scroll_pages(self, all_lines):
-        """Build scroll pages: Centered ASCII art first, then centered text lines, grid on line 4"""
-        def chunks(text, n):
-            text = text.strip()
-            if len(text) <= n:
-                return [text]
-            # Split smoothly by characters
-            return [text[i:i+n] for i in range(0, len(text), n)]
+        """Build readable LCD pages.
 
+        - Optional ASCII-art page first (centered, sanitized).
+        - Then text pages: up to 3 word-wrapped thought rows (rows 1-3) with a
+          live status line (kaomoji + CPU/RAM) anchored on row 4.
+
+        This replaces the old character-chunking that scattered fragments of
+        unrelated thoughts across the same screen."""
         pages = []
-        
-        # 1. Add Centered ASCII art as the first page if available
-        if hasattr(self, '_current_art') and self._current_art:
-            # Split the art into its raw lines
-            art_lines = [line.rstrip() for line in self._current_art.split('\n')]
-            
-            # Center every individual art line horizontally
-            padded_art = [line[:LCD_COLS].center(LCD_COLS) for line in art_lines[:LCD_ROWS]]
-            
-            # Pad vertically if the art is short
-            while len(padded_art) < LCD_ROWS:
-                padded_art.append(' ' * LCD_COLS)
-                
-            pages.append(padded_art[:LCD_ROWS])
-        
-        # 2. Process the text lines ("s") from your LLM output
-        # We chunk them, but we make sure every broken piece is beautifully centered!
-        chunked = []
+
+        # 1. ASCII-art page (already normalized to 4x20 by get_dream_by_id)
+        art = getattr(self, "_current_art", None)
+        if art:
+            art_rows = [lcd_fit(line).strip().center(LCD_COLS)
+                        for line in art.split("\n")][:LCD_ROWS]
+            while len(art_rows) < LCD_ROWS:
+                art_rows.append(" " * LCD_COLS)
+            pages.append(art_rows[:LCD_ROWS])
+
+        # 2. Word-wrap every thought into clean rows
+        text_rows = []
         for line in all_lines:
-            line_chunks = chunks(line, LCD_COLS)
-            # CRITICAL: Center every text fragment horizontally!
-            centered_chunks = [c.center(LCD_COLS) for c in line_chunks]
-            chunked.append(centered_chunks)
-            
-        max_pages = max(len(c) for c in chunked) if chunked else 1
+            text_rows.extend(self._wrap_line(line))
+        if not text_rows:
+            text_rows = [""]
 
-        # Get grid line (always anchored on line 4)
-        grid_lines = self.grid.render()
-        grid_line = grid_lines[3] if len(grid_lines) > 3 else " " * LCD_COLS
+        # 3. Live status line for row 4 (always informative, never blank)
+        status = lcd_fit(self._get_status_line(self.current_data or {})).ljust(LCD_COLS)
 
-        # Distribute the centered text chunks across scrolling pages
-        for i in range(max_pages):
-            page = []
-            for c in chunked:
-                page.append(c[i] if i < len(c) else " " * LCD_COLS)
-            
-            # Fill empty lines with spaces up to row 3
-            while len(page) < LCD_ROWS - 1:
+        # 4. Pack 3 thought-rows per page, status on row 4
+        rows_per_page = LCD_ROWS - 1
+        for i in range(0, len(text_rows), rows_per_page):
+            page = [r.center(LCD_COLS) for r in text_rows[i:i + rows_per_page]]
+            while len(page) < rows_per_page:
                 page.append(" " * LCD_COLS)
-                
-            # Inject your animated grid character onto row 4
-            page.append(grid_line)
+            page.append(status)
             pages.append(page[:LCD_ROWS])
 
-        self._scroll_pages = pages if len(pages) > 1 else []
+        self._scroll_pages = pages
         self._scroll_page_idx = 0
         self._scroll_tick = 0
 
@@ -1384,18 +1418,21 @@ def refresh_all():
             page.append("")
         scroll_info = ""
 
+    # Sanitize for display so the preview matches the physical LCD exactly
+    page = [lcd_fit(p) for p in page]
+    border = "+" + "=" * (LCD_COLS + 2) + "+"  # 22 wide, matches "| <20> |"
     if LCD_ROWS == 4:
-        lcd = f"""+==============================+
+        lcd = f"""{border}
 | {page[0]:^20} |
 | {page[1]:^20} |
 | {page[2]:^20} |
 | {page[3]:^20} |
-+==============================+{scroll_info}"""
+{border}{scroll_info}"""
     else:
-        lcd = f"""+==============================+
+        lcd = f"""{border}
 | {page[0]:^20} |
 | {page[1]:^20} |
-+==============================+"""
+{border}"""
 
     # Show LLM-selected ASCII art in dashboard
     current_art = getattr(agent, '_current_art', None)
