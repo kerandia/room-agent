@@ -1,5 +1,5 @@
 """
-Room Agent v9 - Optimized for Low Latency
+Joe - AI personality for a 20x4 LCD
 Parallel execution, cached LLM, faster ASR.
 """
 
@@ -604,13 +604,13 @@ class ContextCompiler:
         return " ".join(parts)
 
 
-class RoomAgent:
+class Joe:
     def __init__(self):
         self.ser = None
         self.running = False
         self.history = deque(maxlen=30)
         self.current_data = {}
-        self.current_message = ("Room Agent", "Starting...", "", "")
+        self.current_message = ("Joe", "Starting...", "", "")
         self.current_ascii = ""
         self.current_context = ""
         self.current_thinking = ""
@@ -890,13 +890,24 @@ Examples: CPU's churning|Code's burning, Quiet flow|Let it go"""
         from huggingface_hub import InferenceClient
         client = InferenceClient()
         if not system_prompt:
-            system_prompt = "You are a witty LCD display. Return 2 lines separated by |. Max 16 chars each."
+            system_prompt = """You are a computer. i5 CPU, 16GB RAM, GTX 1650. You feel things.
+Speak in first person. Short. Witty. Sarcastic. Never repeat.
+React to CURRENT state. Pick an ASCII art ID that matches your mood.
+You MUST return exactly 3 lines in the s array.
+Your user watches your LCD output in real time - they see every word you write.
+Be expressive, they are reading along. Make eye contact through the screen.
+
+Return JSON: {"s":["line1","line2","line3"],"art":ID}
+
+Art IDs: 0-4 happy, 5-8 sad, 9-11 angry, 12-14 excited, 40-42 coffee, 43-46 code, 80-81 computer, 90-91 cat
+
+Be alive."""
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ]
         start = time.time()
-        response = client.chat_completion(model="HuggingFaceH4/zephyr-7b-beta", messages=messages, max_tokens=80, temperature=0.9)
+        response = client.chat_completion(model="HuggingFaceH4/zephyr-7b-beta", messages=messages, max_tokens=200, temperature=0.9)
         elapsed = time.time() - start
         content = response.choices[0].message.content.strip()
         self.last_api_call = {"time": datetime.now().strftime("%H:%M:%S"), "response_time": f"{elapsed:.2f}s", "model": "zephyr-7b", "response": content, "status": 200, "mode": "HF API"}
@@ -1341,7 +1352,7 @@ How do I feel right now?"""
                 self.audio._cohere_daemon.kill()
             self.audio._cohere_daemon = None
 
-agent = RoomAgent()
+agent = Joe()
 
 def connect():
     if agent.connect_lcd():
@@ -1428,9 +1439,9 @@ Tokens: {api.get('prompt_tokens', '?')} in / {api.get('completion_tokens', '?')}
     return lcd, status, api_log, history, thought
 
 def create_ui():
-    with gr.Blocks(title="Room Agent", theme=gr.themes.Soft()) as demo:
-        gr.Markdown(f"""# Room Agent
-Context-aware AI LCD with reasoning pipeline
+    with gr.Blocks(title="Joe", theme=gr.themes.Soft()) as demo:
+        gr.Markdown(f"""# Joe
+A self-aware AI personality living on a 20x4 LCD.
 **LLM:** {LLM_MODE} | **Pipeline:** Data → Context Compiler → Few-Shot LLM → LCD""")
 
         with gr.Row():
@@ -1455,4 +1466,9 @@ Context-aware AI LCD with reasoning pipeline
 
 if __name__ == "__main__":
     demo = create_ui()
+    # Auto-start on HF Spaces
+    if ON_HF:
+        agent.running = True
+        threading.Thread(target=agent.agent_loop, daemon=True).start()
+        print("Joe auto-started on HF Spaces")
     demo.launch(share=True, server_name="0.0.0.0", server_port=7862)

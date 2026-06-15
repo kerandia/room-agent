@@ -38,13 +38,13 @@ def main():
     # Test 2: Character set
     print("\n=== TEST 2: Character Set ===")
     send_lcd(ser, "ABCDEFGHJKLMNPQRT", "UVWXYZ0123456789",
-             "/|_-.*+={}[]<>!@", "Room Agent v9 OK!")
+             "/|_-.*+={}[]<>!@", "   Joe v1.0  OK!   ")
     input("Look at the LCD. Are all characters readable? Press Enter...")
 
     # Test 3: Alignment
     print("\n=== TEST 3: Center Alignment ===")
-    send_lcd(ser, "       HELLO       ", "     WORLD!        ",
-             "   Room Agent 9    ", "   20x4 LCD Test   ")
+    send_lcd(ser,              "       HELLO       ", "     WORLD!        ",
+             "    Joe is alive!   ", "   20x4 LCD Test   ")
     input("Look at the LCD. Is text centered? Press Enter...")
 
     # Test 4: Edge cases
