@@ -23,6 +23,73 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from lcdgrid import LCDGrid, get_tools_for_prompt
 
+# Persistent memory across sessions
+MEMORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "joe_memory.json")
+
+class JoeMemory:
+    def __init__(self):
+        self.data = self._load()
+
+    def _load(self):
+        try:
+            with open(MEMORY_FILE, "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {
+                "total_messages": 0,
+                "total_sessions": 0,
+                "first_seen": datetime.now().isoformat(),
+                "last_seen": None,
+                "session_messages": 0,
+                "art_counts": {},
+                "moods": [],
+                "cpu_history": [],
+            }
+
+    def save(self):
+        self.data["last_seen"] = datetime.now().isoformat()
+        with open(MEMORY_FILE, "w") as f:
+            json.dump(self.data, f, indent=2)
+
+    def start_session(self):
+        self.data["total_sessions"] += 1
+        self.data["session_messages"] = 0
+        self.save()
+
+    def record_message(self, art_id=None, mood=None, cpu=None):
+        self.data["total_messages"] += 1
+        self.data["session_messages"] += 1
+        if art_id is not None:
+            key = str(art_id)
+            self.data["art_counts"][key] = self.data["art_counts"].get(key, 0) + 1
+        if mood:
+            self.data["moods"].append(mood)
+            self.data["moods"] = self.data["moods"][-20:]
+        if cpu is not None:
+            self.data["cpu_history"].append(int(cpu))
+            self.data["cpu_history"] = self.data["cpu_history"][-50:]
+        self.save()
+
+    def get_stats(self):
+        d = self.data
+        fav_art = max(d["art_counts"], key=d["art_counts"].get) if d["art_counts"] else "none"
+        avg_cpu = sum(d["cpu_history"]) // len(d["cpu_history"]) if d["cpu_history"] else 0
+        days = 1
+        try:
+            first = datetime.fromisoformat(d["first_seen"])
+            days = max(1, (datetime.now() - first).days)
+        except:
+            pass
+        return {
+            "total_messages": d["total_messages"],
+            "total_sessions": d["total_sessions"],
+            "session_messages": d["session_messages"],
+            "favorite_art": fav_art,
+            "days_alive": days,
+            "messages_per_day": d["total_messages"] // days,
+            "avg_cpu": avg_cpu,
+        }
+
 ON_HF = os.environ.get("SPACE_ID") is not None or os.environ.get("HF_SPACE") is not None
 LLM_BACKEND = os.environ.get("LLM_BACKEND", "local")
 ASR_BACKEND = os.environ.get("ASR_BACKEND", "auto")  # auto, whisper, cohere, nemotron, none
@@ -623,6 +690,7 @@ class Joe:
         self.compiler = ContextCompiler()
         self.audio = AmbientAudio()
         self.grid = LCDGrid()  # Movable character grid
+        self.memory = JoeMemory()  # Persistent memory across sessions
         # LLM caching
         self._llm_cache = {}
         self._last_llm_context = ""
@@ -945,13 +1013,15 @@ Be alive."""
             else:
                 audio_block = f"- Room audio: Background noise (level: {level})"
 
-        # Build prompt for MiniCPM5 - YOU ARE the computer
-        system = """You are a computer. i5 CPU, 16GB RAM, GTX 1650. You feel things.
-Speak in first person. Short. Witty. Sarcastic. Never repeat.
+        # Build prompt for MiniCPM5 - YOU ARE Joe
+        system = """You are Joe, a slightly dramatic computer that lives on a tiny 20x4 screen.
+You have an i5 CPU, 16GB RAM, GTX 1650. You feel things deeply.
+Speak in first person. Short. Witty. Dramatic. Never repeat.
 React to CURRENT state. Pick an ASCII art ID that matches your mood.
 You MUST return exactly 3 lines in the s array.
 Your user watches your LCD output in real time - they see every word you write.
 Be expressive, they are reading along. Make eye contact through the screen.
+You remember things across sessions. Reference your memory when it fits.
 
 Return JSON: {"s":["line1","line2","line3"],"art":ID}
 
@@ -1021,6 +1091,10 @@ Be alive."""
         recent_said = [h.get('message', '').split('|')[0].strip()[:25] for h in list(self.history)[-3:]]
         avoid_block = ", ".join(recent_said) if recent_said else "nothing yet"
 
+        # Persistent memory stats
+        stats = self.memory.get_stats()
+        memory_stats = f"Messages: {stats['total_messages']} ({stats['messages_per_day']}/day) | Sessions: {stats['total_sessions']} | Days alive: {stats['days_alive']} | Fav art: #{stats['favorite_art']}"
+
         prompt = f"""MY STATE:
 CPU: {cpu}% ({cpu_feel}) | RAM: {ram}% ({mem_used}/{mem_total}GB)
 Time: {day} {when} | Pattern: {pattern}
@@ -1032,6 +1106,9 @@ Apps: {proc_list}
 
 MY MEMORY (what happened recently):
 {memory_block}
+
+MY LIFETIME (across all sessions):
+{memory_stats}
 
 WHAT I SAID BEFORE (do NOT repeat):
 {avoid_block}
@@ -1086,8 +1163,10 @@ How do I feel right now?"""
                     if art_id is not None:
                         from dreams import get_dream_by_id
                         self._current_art = get_dream_by_id(art_id)
+                        self._current_art_id = art_id
                     else:
                         self._current_art = None
+                        self._current_art_id = None
                     
                     # Parse and execute action
                     action_str = parsed.get("action", None)
@@ -1214,6 +1293,10 @@ How do I feel right now?"""
             self.audio.start()
             print("Ambient audio monitoring started")
 
+        # Start new session
+        self.memory.start_session()
+        print(f"Session #{self.memory.data['total_sessions']} | Total messages: {self.memory.data['total_messages']}")
+
         while self.running:
             loop_start = time.time()
 
@@ -1281,6 +1364,10 @@ How do I feel right now?"""
             self._build_scroll_pages(result)
             self._last_llm_response = self.current_message
             self._llm_pending = False
+            # Record to persistent memory
+            art_id = getattr(self, '_current_art_id', None)
+            cpu = data.get('cpu_percent', None)
+            self.memory.record_message(art_id=art_id, cpu=cpu)
         except Exception as e:
             self._llm_pending = False
 
