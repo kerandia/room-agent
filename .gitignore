@@ -4,3 +4,4 @@ __pycache__/
 .env
 *.wav
 models/
+joe_memory.json
